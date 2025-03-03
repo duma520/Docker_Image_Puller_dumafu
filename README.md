@@ -2,7 +2,7 @@
 
 起源版：[https://github.com/topcss/docker-pull-tar](https://github.com/topcss/docker-pull-tar/releases/tag/v1.0.7)
 
-因为众所周知的原因，原版 1.0.7 版本下载只是单线程，但是RAGFlow 0.17.0 高达9G，下载完大概第4到6个文件的时候就认证就超时了， 本着源码不变的情况下增加多线程就算的原则，对于Python还是小白程度的我，只能求助AI，但众所周知，有时候AI想的，跟我想的不太一样，出现的问题也不短，大概就跟钢铁侠整那套钢铁一样，通过不断地迭代，最终整了一个自己的版本出来。
+因为众所周知的原因，原版 1.0.7 版本下载只是单线程，但是RAGFlow 0.17.0 高达9G，下载完大概第4到6个文件的时候就认证就超时了， 本着源码不变的情况下增加多线程就算的原则，对于Python还是小白程度的我，只能求助AI，但众所周知，有时候AI想的，跟我想的不太一样，出现的问题也不一样，大概就跟钢铁侠整那套钢铁一样，通过不断地迭代，最终整了一个自己的版本出来。
 
 再次特别感谢 https://github.com/topcss/docker-pull-tar ，也希望大家一如既往地支持 https://github.com/topcss/docker-pull-tar。
 
