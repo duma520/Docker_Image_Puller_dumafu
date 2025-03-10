@@ -22,7 +22,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # 全局配置
-VERSION = "v16.0.0"
+VERSION = "v3.2.0"
 CHUNK_SIZE = 1024 * 512
 MAX_RETRIES = 3
 RETRY_DELAY = 5

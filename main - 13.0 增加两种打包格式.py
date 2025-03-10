@@ -22,12 +22,12 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # 全局配置
-VERSION = "v16.0.0"
-CHUNK_SIZE = 1024 * 512
-MAX_RETRIES = 3
-RETRY_DELAY = 5
-MAX_WORKERS = 1
-RETRY_BACKOFF = 2
+VERSION = "v3.1.0"  # 版本升级
+CHUNK_SIZE = 1024 * 512  
+MAX_RETRIES = 3          
+RETRY_DELAY = 5          
+MAX_WORKERS = 1           
+RETRY_BACKOFF = 2         
 
 # 初始化日志系统
 logging.basicConfig(
@@ -41,6 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class TimeoutHTTPAdapter(HTTPAdapter):
+    """自定义超时HTTP适配器"""
     def __init__(self, timeout=30, *args, **kwargs):
         self.timeout = timeout
         super().__init__(*args, **kwargs)
@@ -50,6 +51,7 @@ class TimeoutHTTPAdapter(HTTPAdapter):
         return super().send(request, **kwargs)
 
 def create_session():
+    """创建带重试机制的会话"""
     retry_strategy = Retry(
         total=MAX_RETRIES,
         backoff_factor=1.5,
@@ -66,6 +68,7 @@ def create_session():
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     
+    # 设置代理
     session.proxies.update({
         'http': os.environ.get('HTTP_PROXY'),
         'https': os.environ.get('HTTPS_PROXY')
@@ -74,6 +77,7 @@ def create_session():
     return session
 
 def parse_image_input(image_input):
+    """解析镜像名称输入"""
     if '/' not in image_input:
         repo = 'library'
         image_part = image_input
@@ -86,6 +90,7 @@ def parse_image_input(image_input):
     return repo, img, tag
 
 def get_auth_token(session, registry, repo, img, force_refresh=False):
+    """获取/刷新 Docker 仓库认证令牌"""
     token_key = f"{registry}_{repo}_{img}_token"
     token_exp_key = f"{token_key}_exp"
     current_time = time.time()
@@ -114,9 +119,10 @@ def get_auth_token(session, registry, repo, img, force_refresh=False):
             token_data = resp.json()
             token = token_data["token"]
             
+            # 解析令牌有效期（兼容不同仓库实现）
             if 'expires_in' in token_data:
                 expires_in = token_data['expires_in']
-            else:
+            else:  # 默认1小时有效期
                 expires_in = 3600
 
             logger.debug(f"获取新令牌前8位: {token[:8]}******")
@@ -134,12 +140,14 @@ def get_auth_token(session, registry, repo, img, force_refresh=False):
         raise
 
 def get_manifest(session, registry, repo, img, tag, auth_headers):
+    """获取镜像清单数据"""
     url = f"https://{registry}/v2/{repo}/{img}/manifests/{tag}"
     resp = session.get(url, headers=auth_headers, verify=False)
     resp.raise_for_status()
     return resp.json()
 
 def select_architecture(manifest_data, target_arch, session, registry, repo, img, auth_headers):
+    """选择指定架构的镜像清单"""
     if 'manifests' not in manifest_data:
         return manifest_data
     
@@ -159,6 +167,7 @@ def select_architecture(manifest_data, target_arch, session, registry, repo, img
     raise ValueError(f"未找到 {target_arch} 架构的镜像")
 
 def validate_file(file_path, expected_digest):
+    """校验文件SHA256摘要"""
     alg, digest = expected_digest.split(':')
     hasher = hashlib.new(alg)
     
@@ -171,6 +180,7 @@ def validate_file(file_path, expected_digest):
         raise ValueError(f"文件校验失败: {os.path.basename(file_path)}")
 
 def download_layer(session, registry, repo, img, layer, output_dir, auth_headers):
+    """改进后的下载函数"""
     current_headers = get_auth_token(session, registry, repo, img)
     
     sanitized_name = layer['digest'].replace(':', '_').replace('/', '_')
@@ -214,7 +224,7 @@ def download_layer(session, registry, repo, img, layer, output_dir, auth_headers
                             pbar.update(len(chunk))
                 
                 validate_file(tmp_gz, layer['digest'])
-                shutil.move(tmp_gz, tmp_gz[:-8])
+                shutil.move(tmp_gz, tmp_gz[:-8])  # 移除.download后缀
                 break
                 
         except requests.exceptions.HTTPError as e:
@@ -241,68 +251,78 @@ def download_layer(session, registry, repo, img, layer, output_dir, auth_headers
         raise
 
 def build_image(output_path, layers_dir, repo, img, tag, package_format="synology"):
+    """构建镜像包"""
     if package_format == "synology":
         _build_synology_format(output_path, layers_dir, repo, img, tag)
     else:
         _build_docker_format(output_path, layers_dir, repo, img, tag)
 
 def _build_synology_format(output_path, layers_dir, repo, img, tag):
+    """群晖专用格式"""
     tmp_dir = os.path.join(os.path.dirname(output_path), f"synology_build_temp_{int(time.time())}")
     os.makedirs(tmp_dir, exist_ok=True)
 
     try:
-        # 生成config.json
+        layer_list = []
+        config_id = hashlib.sha256(json.dumps({"created": "1970-01-01T00:00:00Z"}).encode()).hexdigest()
+        
         config_content = {
             "architecture": "amd64",
-            "os": "linux",
-            "history": [{
-                "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "created_by": f"docker_pull {VERSION}"
-            }],
             "rootfs": {
                 "type": "layers",
                 "diff_ids": [
                     f"sha256:{hashlib.sha256(open(os.path.join(layers_dir, l), 'rb').read()).hexdigest()}"
-                    for l in sorted(os.listdir(layers_dir)) if l.endswith('.tar')
+                    for l in os.listdir(layers_dir) if l.endswith('.tar')
                 ]
             }
         }
-        config_hash = hashlib.sha256(json.dumps(config_content).encode()).hexdigest()
-        config_path = os.path.join(tmp_dir, f"{config_hash}.json")
+        config_path = os.path.join(tmp_dir, f"{config_id}.json")
         with open(config_path, 'w') as f:
-            json.dump(config_content, f, indent=2)
+            json.dump(config_content, f)
 
-        # 生成层级目录
-        layer_ids = []
-        for layer_file in sorted(os.listdir(layers_dir)):
-            if layer_file.endswith('.tar'):
-                with open(os.path.join(layers_dir, layer_file), 'rb') as f:
-                    layer_hash = hashlib.sha256(f.read()).hexdigest()
-                layer_dir = os.path.join(tmp_dir, layer_hash)
-                os.makedirs(layer_dir, exist_ok=True)
-                shutil.copy(
-                    os.path.join(layers_dir, layer_file),
-                    os.path.join(layer_dir, "layer.tar")
-                )
-                layer_ids.append(layer_hash)
+        for idx, layer_file in enumerate(os.listdir(layers_dir)):
+            if not layer_file.endswith('.tar'):
+                continue
 
-        # 生成manifest.json
+            layer_hash = hashlib.sha256()
+            with open(os.path.join(layers_dir, layer_file), 'rb') as f:
+                layer_hash.update(f.read())
+            
+            layer_id = layer_hash.hexdigest()
+            layer_dir = os.path.join(tmp_dir, layer_id)
+            os.makedirs(layer_dir, exist_ok=True)
+            
+            shutil.copy(
+                os.path.join(layers_dir, layer_file),
+                os.path.join(layer_dir, "layer.tar")
+            )
+            
+            layer_data = {
+                "id": layer_id[:12],
+                "parent": "" if idx == 0 else layer_list[-1]['id'],
+                "created": "1970-01-01T00:00:00Z"
+            }
+            with open(os.path.join(layer_dir, "json"), 'w') as f:
+                json.dump(layer_data, f)
+            with open(os.path.join(layer_dir, "VERSION"), 'w') as f:
+                f.write("1.0")
+            
+            layer_list.append(layer_data)
+
         manifest = [{
-            "Config": f"{config_hash}.json",
+            "Config": f"{config_id}.json",
             "RepoTags": [f"{repo}/{img}:{tag}"],
-            "Layers": [f"{layer_id}/layer.tar" for layer_id in layer_ids]
+            "Layers": [os.path.join(layer['id'], "layer.tar") for layer in layer_list]
         }]
         with open(os.path.join(tmp_dir, "manifest.json"), 'w') as f:
-            json.dump(manifest, f, indent=2)
+            json.dump(manifest, f)
 
-        # 生成repositories（关键修正）
         repositories = {
-            f"{repo}/{img}": {tag: layer_ids[-1]}
+            f"{repo}/{img}": {tag: layer_list[-1]['id'] if layer_list else ""}
         }
         with open(os.path.join(tmp_dir, "repositories"), 'w') as f:
-            json.dump(repositories, f, indent=2)
+            json.dump(repositories, f)
 
-        # 打包
         with tarfile.open(output_path, "w") as tar:
             tar.add(tmp_dir, arcname='/')
 
@@ -311,52 +331,30 @@ def _build_synology_format(output_path, layers_dir, repo, img, tag):
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 def _build_docker_format(output_path, layers_dir, repo, img, tag):
-    tmp_dir = os.path.join(os.path.dirname(output_path), f"docker_build_temp_{int(time.time())}")
-    os.makedirs(tmp_dir, exist_ok=True)
-
-    try:
-        config_content = {
-            "architecture": "amd64",
-            "os": "linux",
-            "rootfs": {
-                "type": "layers",
-                "diff_ids": [
-                    f"sha256:{hashlib.sha256(open(os.path.join(layers_dir, l), 'rb').read()).hexdigest()}"
-                    for l in sorted(os.listdir(layers_dir)) if l.endswith('.tar')
-                ]
-            }
-        }
-        config_hash = hashlib.sha256(json.dumps(config_content).encode()).hexdigest()
-        with open(os.path.join(tmp_dir, f"{config_hash}.json"), 'w') as f:
-            json.dump(config_content, f, indent=2)
-
-        layer_ids = []
-        for layer_file in sorted(os.listdir(layers_dir)):
+    """标准Docker格式"""
+    with tarfile.open(output_path, "w") as tar:
+        # 添加所有层文件
+        for layer_file in os.listdir(layers_dir):
             if layer_file.endswith('.tar'):
-                with open(os.path.join(layers_dir, layer_file), 'rb') as f:
-                    layer_hash = hashlib.sha256(f.read()).hexdigest()
-                layer_dir = os.path.join(tmp_dir, layer_hash)
-                os.makedirs(layer_dir, exist_ok=True)
-                shutil.copy(
+                tar.add(
                     os.path.join(layers_dir, layer_file),
-                    os.path.join(layer_dir, "layer.tar")
+                    arcname=layer_file
                 )
-                layer_ids.append(layer_hash)
-
+        
+        # 生成标准manifest
         manifest = [{
-            "Config": f"{config_hash}.json",
+            "Config": f"{img}-{tag}.json",
             "RepoTags": [f"{repo}/{img}:{tag}"],
-            "Layers": [f"{layer_id}/layer.tar" for layer_id in layer_ids]
+            "Layers": [f for f in os.listdir(layers_dir) if f.endswith('.tar')]
         }]
-        with open(os.path.join(tmp_dir, "manifest.json"), 'w') as f:
-            json.dump(manifest, f, indent=2)
-
-        with tarfile.open(output_path, "w") as tar:
-            tar.add(tmp_dir, arcname='/')
+        
+        # 临时写入manifest
+        with open("manifest.json", 'w') as f:
+            json.dump(manifest, f)
+        tar.add("manifest.json")
+        os.remove("manifest.json")
 
         logger.info(f"标准Docker镜像已生成: {output_path}")
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 def main():
     parser = argparse.ArgumentParser(description="Docker镜像下载工具")
@@ -369,7 +367,7 @@ def main():
     parser.add_argument("-f", "--format", 
                        choices=["docker", "synology"],
                        default="synology",
-                       help="打包格式 (默认: %(default)s)")
+                       help="打包格式 (默认: synology)")
     parser.add_argument("--insecure", action="store_true", help="跳过SSL证书验证")
     parser.add_argument("--debug", action="store_true", help="启用调试日志")
     
