@@ -1,0 +1,20 @@
+library/ubuntu:latest
+library/hello-world
+library/nginx:latest
+networkstatic/iperf3:latest
+infiniflow/ragflow:v0.17.0
+amd64 arm64
+
+python main.py -r docker.1ms.run  --debug library/ubuntu:latest
+
+python main.py -r docker.1ms.run  --debug library/hello-world
+
+python main.py -r docker.1ms.run  --debug library/nginx:latest
+
+python main.py -r docker.1ms.run  --debug  infiniflow/ragflow:v0.17.0
+
+python main.py -r docker.1ms.run  networkstatic/iperf3:latest
+
+程序默认使用amd64架构（通过--arch参数可修改），需确保构建时指定的架构与群晖NAS硬件匹配（DSM 7.0+要求linux/amd64或linux/arm64）
+
+可否增加一个打包的参数，默认是Docker格式的，另外一个是 群晖格式的？

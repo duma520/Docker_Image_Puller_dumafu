@@ -1,0 +1,56 @@
+# ---- 构建产物 ----
+build_output/
+dist/
+build/
+*.build/
+*.dist/
+*.spec.bak
+output/
+
+# ---- Python 缓存 ----
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# ---- 运行期数据（本机私有，不入库）----
+*.log
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.session
+*_settings.json
+settings.json
+config.json
+last_config.txt
+recent_orders.json
+window_geometry.json
+scan_states/
+logs/
+temp/
+temp_file/
+backups/
+thumbs/
+
+# ---- 版本归档与发布工作目录 ----
+version/
+_scaffold/
+_publish/
+
+# ---- 凭据（绝不入库）----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+token.txt
+cookies*
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini
