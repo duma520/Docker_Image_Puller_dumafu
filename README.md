@@ -235,7 +235,7 @@ RETRY_DELAY = 10           # 重试间隔（秒）
 ```
 
 ### 7.3 法律声明
-本工具遵循MIT开源协议，使用Docker API时请遵守Docker服务条款。
+本工具遵循AGPL-3.0 开源协议，使用Docker API时请遵守Docker服务条款。
 
 ---
 
